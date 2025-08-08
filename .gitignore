@@ -116,8 +116,9 @@ training_dataset.csv
 document_classifier.pth
 vectorizer.pkl
 
-# Kaggle datasets cache
+# Kaggle datasets cache and credentials
 .kaggle/
+kaggle.json
 *.zip
 
 # OCR and image processing

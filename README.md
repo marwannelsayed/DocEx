@@ -50,7 +50,13 @@ pip install torch scikit-learn pandas numpy pytesseract Pillow spacy kagglehub p
 python -m spacy download en_core_web_sm
 ```
 
-### 4. Verify Installation
+### 4. Configure Kaggle API (Required for dataset download)
+1. Create a Kaggle account at https://www.kaggle.com/
+2. Go to Account → API → Create New API Token
+3. Download `kaggle.json` and place it in your project directory
+4. **Important**: Never commit `kaggle.json` to version control (it's in `.gitignore`)
+
+### 5. Verify Installation
 ```bash
 python test_dependencies.py
 ```
@@ -174,16 +180,6 @@ OSError: Can't find model 'en_core_web_sm'
 python -m spacy download en_core_web_sm
 ```
 
-**3. Low accuracy predictions**
-- Check training data balance with `diagnose_model.py`
-- Ensure sufficient training samples for both classes
-- Verify OCR quality of input images
-
-### Debug Model Performance
-```bash
-python diagnose_model.py
-```
-
 ## 📈 Performance Tips
 
 ### Improving Accuracy
@@ -220,10 +216,6 @@ trainer.train(
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
 
 ## 🙏 Acknowledgments
 
