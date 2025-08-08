@@ -1,66 +1,38 @@
 #!/usr/bin/env python3
-"""
-Training script for document classification.
-This script will:
-1. Install required packages
-2. Create training dataset
-3. Train PyTorch classifier
-4. Evaluate the model
-"""
 
 import subprocess
 import sys
 import os
 
-def install_packages():
-    """Install required packages."""
-    packages = [
-        'torch',
-        'scikit-learn',
-        'pandas',
-        'numpy'
-    ]
-    
-    print("Installing required packages...")
-    for package in packages:
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
-            print(f"✓ {package} installed successfully")
-        except subprocess.CalledProcessError:
-            print(f"✗ Failed to install {package}")
-            return False
-    return True
-
 def main():
     print("=== Document Classification Training Pipeline ===\n")
+
+    # Step 1: Create training dataset
+    print("Step 1: Checking for training dataset...")
     
-    # Step 1: Install packages
-    if not install_packages():
-        print("Failed to install required packages. Exiting.")
-        return
+    if os.path.exists("training_dataset.csv"):
+        print("✓ Training dataset already exists (training_dataset.csv)")
+        print("Skipping dataset creation step.")
+    else:
+        print("Training dataset not found. Creating new dataset...")
+        try:
+            subprocess.run([sys.executable, 'app.py'], check=True)
+            print("✓ Training dataset created successfully")
+        except subprocess.CalledProcessError:
+            print("✗ Failed to create training dataset")
+            return
+        except FileNotFoundError:
+            print("✗ app.py not found")
+            return
+        
+        # Check if dataset was created
+        if not os.path.exists("training_dataset.csv"):
+            print("✗ Training dataset file not found")
+            return
     
     print("\n" + "="*50)
-    
-    # Step 2: Create training dataset
-    print("Step 1: Creating training dataset...")
-    try:
-        subprocess.run([sys.executable, 'app.py'], check=True)
-        print("✓ Training dataset created successfully")
-    except subprocess.CalledProcessError:
-        print("✗ Failed to create training dataset")
-        return
-    except FileNotFoundError:
-        print("✗ app.py not found")
-        return
-    
-    # Check if dataset was created
-    if not os.path.exists("training_dataset.csv"):
-        print("✗ Training dataset file not found")
-        return
-    
-    print("\n" + "="*50)
-    
-    # Step 3: Train classifier
+
+    # Step 2: Train classifier
     print("Step 2: Training PyTorch classifier...")
     try:
         from classifier import DocumentClassifierTrainer

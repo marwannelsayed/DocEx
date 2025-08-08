@@ -5,6 +5,11 @@ import pytesseract
 from PIL import Image
 import spacy
 import re
+import os
+
+# Configure Tesseract path for Windows
+if os.name == 'nt':  # Windows
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -80,7 +85,80 @@ def extract_structured_data(text):
     return structured_data
 
 def extract_text_for_classification(image_path):
-    text = extract_text_from_image(image_path)
-    cleaned_text = clean_text(text, remove_stopwords=True)
-    structured_data = extract_structured_data(cleaned_text)
-    return structured_data
+    # Extract raw text from image
+    raw_text = extract_text_from_image(image_path)
+    
+    if not raw_text.strip():
+        return {
+            "raw_text": "",
+            "cleaned_text": "",
+            "classification_features": {},
+            "success": False,
+            "error": "No text extracted from image"
+        }
+    
+    # Clean text for classification (remove stopwords to focus on distinguishing features)
+    cleaned_text = clean_text(raw_text, remove_stopwords=True)
+    
+    # Extract classification-specific features
+    classification_features = extract_classification_features(raw_text, cleaned_text)
+    
+    return {
+        "raw_text": raw_text,
+        "cleaned_text": cleaned_text,
+        "classification_features": classification_features,
+        "success": True,
+        "file_path": image_path
+    }
+
+def extract_classification_features(raw_text, cleaned_text):
+    """
+    Extract features specifically useful for document classification.
+    """
+    features = {}
+    
+    # Text statistics
+    features["word_count"] = len(cleaned_text.split())
+    features["char_count"] = len(cleaned_text)
+    features["line_count"] = len(raw_text.split('\n'))
+    
+    # Invoice-specific features
+    features["has_invoice_number"] = bool(re.search(r'invoice\s*#?\s*\d+', cleaned_text, re.IGNORECASE))
+    features["has_amount"] = bool(re.search(r'\$\d+\.?\d*', cleaned_text))
+    features["has_total"] = bool(re.search(r'total.*\$\d+', cleaned_text, re.IGNORECASE))
+    features["has_due_date"] = bool(re.search(r'due.*date', cleaned_text, re.IGNORECASE))
+    features["has_billing"] = bool(re.search(r'billing|payment|remittance', cleaned_text, re.IGNORECASE))
+    
+    # Email-specific features
+    features["has_email_address"] = bool(re.search(r'\w+@\w+\.\w+', cleaned_text))
+    features["has_subject"] = bool(re.search(r'subject:', cleaned_text, re.IGNORECASE))
+    features["has_email_headers"] = bool(re.search(r'from:.*to:', cleaned_text, re.IGNORECASE))
+    features["has_greeting"] = bool(re.search(r'dear \w+|hello|hi', cleaned_text, re.IGNORECASE))
+    features["has_signature"] = bool(re.search(r'sincerely|regards|best wishes', cleaned_text, re.IGNORECASE))
+    
+    # Document structure features
+    features["has_tables"] = bool(re.search(r'(\w+\s+){3,}\$?\d+', cleaned_text))  # Likely table structure
+    features["has_addresses"] = bool(re.search(r'\d+\s+\w+\s+(street|st|avenue|ave|road|rd)', cleaned_text, re.IGNORECASE))
+    features["has_phone"] = bool(re.search(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', cleaned_text))
+    
+    # Count specific keywords
+    invoice_keywords = ['invoice', 'bill', 'receipt', 'payment', 'due', 'amount', 'total', 'tax', 'subtotal']
+    email_keywords = ['subject', 'from', 'to', 'sent', 'received', 'reply', 'message', 'dear', 'regards']
+    
+    features["invoice_keyword_count"] = sum(1 for keyword in invoice_keywords if keyword in cleaned_text)
+    features["email_keyword_count"] = sum(1 for keyword in email_keywords if keyword in cleaned_text)
+    
+    # Entity-based features
+    entities = extract_entities(raw_text)
+    entity_dict = {}
+    for entity, label in entities:
+        if label not in entity_dict:
+            entity_dict[label] = []
+        entity_dict[label].append(entity)
+    
+    features["money_entities"] = len(entity_dict.get("MONEY", []))
+    features["person_entities"] = len(entity_dict.get("PERSON", []))
+    features["org_entities"] = len(entity_dict.get("ORG", []))
+    features["date_entities"] = len(entity_dict.get("DATE", []))
+    
+    return features
