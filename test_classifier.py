@@ -44,7 +44,7 @@ def main():
         try:
             result = trainer.predict(text)
             print(f"Prediction: {result['predicted_class']} (confidence: {result['confidence']:.3f})")
-            print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Invoice: {result['probabilities']['invoice']:.3f}")
+            print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Not Email: {result['probabilities']['not email']:.3f}")
         except FileNotFoundError:
             print("Trained model not found. Please run train_classifier.py first.")
             break
@@ -56,24 +56,22 @@ def main():
     print("\nInteractive Mode (type 'quit' to exit):")
     while True:
         user_input = input("\nEnter image path or text to classify: ").strip()
-        
         if user_input.lower() == 'quit':
             break
-        
         if os.path.exists(user_input):
             # It's a file path
             result = classify_image(user_input)
             if result:
                 print(f"File: {user_input}")
                 print(f"Prediction: {result['predicted_class']} (confidence: {result['confidence']:.3f})")
-                print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Invoice: {result['probabilities']['invoice']:.3f}")
+                print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Not Email: {result['probabilities']['not email']:.3f}")
         else:
             # It's text
             try:
                 result = trainer.predict(user_input)
                 print(f"Text: {user_input[:100]}...")
                 print(f"Prediction: {result['predicted_class']} (confidence: {result['confidence']:.3f})")
-                print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Invoice: {result['probabilities']['invoice']:.3f}")
+                print(f"Probabilities: Email: {result['probabilities']['email']:.3f}, Not Email: {result['probabilities']['not email']:.3f}")
             except Exception as e:
                 print(f"Error: {e}")
 

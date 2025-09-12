@@ -1,13 +1,13 @@
 # DocEx - Document Classification System
 
-A PyTorch-based machine learning system for classifying scanned documents as either **emails** or **invoices** using OCR and neural networks.
+A PyTorch-based machine learning system for classifying scanned documents as either **emails** or **not emails** using OCR and neural networks.
 
 ## 🚀 Features
 
-- **OCR Text Extraction**: Extracts text from images using Tesseract OCR
-- **Neural Network Classification**: PyTorch-based deep learning model
-- **Feature Engineering**: 20+ engineered features for better accuracy
-- **Data Processing**: Automated dataset creation from Kaggle datasets
+- **OCR Text Extraction**: Extracts text from images using Tesseract OCR with advanced preprocessing
+- **Binary Classification**: PyTorch-based deep learning model for email detection
+- **Feature Engineering**: 20+ engineered features optimized for email detection
+- **Data Processing**: Automated dataset creation from Kaggle datasets with balanced sampling
 - **Interactive Testing**: Command-line interface for testing classifications
 
 ## 📋 Requirements
@@ -33,7 +33,14 @@ pdf2image
 
 ## 🛠️ Installation
 
-### 1. Install Tesseract OCR (Windows)
+### 1. Install Tesseract OCR
+
+**macOS:**
+```bash
+brew install tesseract
+```
+
+**Windows:**
 ```bash
 winget install --id UB-Mannheim.TesseractOCR
 ```
@@ -84,13 +91,13 @@ DocEx/
 ```bash
 python app.py
 ```
-This downloads email and invoice images from Kaggle and creates `training_dataset.csv`.
+This downloads email and non-email document images from Kaggle and creates `training_dataset.csv` with balanced sampling (all emails + 100 files per non-email folder).
 
 ### 2. Train the Classifier
 ```bash
 python train_classifier.py
 ```
-This trains a PyTorch neural network and saves the model.
+This trains a PyTorch neural network for binary email classification and saves the model.
 
 ### 3. Test Classifications
 ```bash
@@ -105,9 +112,9 @@ Interactive testing with sample texts and your own images.
 from classifier import DocumentClassifierTrainer
 
 trainer = DocumentClassifierTrainer()
-result = trainer.predict("Invoice #12345 Total: $150.00")
+result = trainer.predict("Subject: Meeting Tomorrow From: john@company.com")
 
-print(f"Class: {result['predicted_class']}")
+print(f"Class: {result['predicted_class']}")  # "email" or "not email"
 print(f"Confidence: {result['confidence']:.3f}")
 ```
 
@@ -128,7 +135,7 @@ print(f"Document type: {prediction['predicted_class']}")
 
 ## 🧠 Model Architecture
 
-The classifier uses a 4-layer neural network:
+The classifier uses a 4-layer neural network for binary classification:
 
 ```
 Input (5000 TF-IDF features)
@@ -139,27 +146,29 @@ Linear(256 → 128) → ReLU → Dropout(30%)
     ↓
 Linear(128 → 64) → ReLU → Dropout(30%)
     ↓
-Linear(64 → 2) [Email=0, Invoice=1]
+Linear(64 → 1) → Sigmoid [Email=1, Not Email=0]
 ```
 
-## 📊 Features Extracted
+## 📊 Features Extracted for Email Detection
 
-### Text Statistics
-- Word count, character count, line count
+### Email-Specific Features
+- **Email addresses**: Detects `@` symbols and email patterns
+- **Subject lines**: Looks for "Subject:" headers
+- **Email headers**: Detects "From:", "To:", "Sent:", "Received:"
+- **Greetings**: Identifies "Dear", "Hello", "Hi" patterns
+- **Signatures**: Detects "Regards", "Sincerely", "Best wishes"
+- **Email keyword count**: Counts email-related terms
 
-### Invoice Indicators
-- Has invoice number, amounts, totals, due dates
-- Invoice-specific keyword counts
-- Money entities detected
+### Document Structure Features
+- **Text statistics**: Word count, character count, line count
+- **Named entities**: Person, organization, date, money entities
+- **Document formatting**: Tables, addresses, phone numbers
+- **Non-email indicators**: Invoice numbers, billing terms, amounts
 
-### Email Indicators
-- Has email addresses, subject lines, headers
-- Email-specific keyword counts
-- Person/organization entities
-
-### Document Structure
-- Tables, addresses, phone numbers detected
-- Named entity recognition results
+### Advanced OCR Features
+- **Image preprocessing**: Auto-resize, RGB conversion
+- **Error correction**: Fixes common OCR mistakes
+- **Text cleaning**: Removes artifacts, normalizes whitespace
 
 ## 🔍 Troubleshooting
 
@@ -182,11 +191,11 @@ python -m spacy download en_core_web_sm
 
 ## 📈 Performance Tips
 
-### Improving Accuracy
-1. **More Training Data**: Add more diverse examples
-2. **Better OCR**: Use high-quality, clear images
-3. **Feature Engineering**: Modify `extract_classification_features()`
-4. **Hyperparameter Tuning**: Adjust learning rate, epochs, batch size
+### Improving Email Detection Accuracy
+1. **Balanced Dataset**: The app automatically processes all emails + 100 files per non-email folder
+2. **Better OCR**: Use high-quality, clear images with proper preprocessing
+3. **Feature Engineering**: Focus on email-specific patterns in `extract_classification_features()`
+4. **Hyperparameter Tuning**: Adjust learning rate, epochs, batch size for binary classification
 
 ### Training Parameters
 ```python
@@ -202,12 +211,11 @@ trainer.train(
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Downloads Kaggle datasets and creates training CSV |
-| `extract.py` | OCR text extraction and feature engineering |
-| `classifier.py` | PyTorch neural network implementation |
-| `train_classifier.py` | Complete training pipeline |
-| `test_classifier.py` | Interactive testing interface |
-| `diagnose_model.py` | Model debugging and analysis |
+| `app.py` | Downloads Kaggle datasets and creates balanced training CSV |
+| `extract.py` | Advanced OCR text extraction and email-focused feature engineering |
+| `classifier.py` | PyTorch binary classification neural network |
+| `train_classifier.py` | Complete training pipeline for email detection |
+| `test_classifier.py` | Interactive testing interface for email classification |
 
 ## 🤝 Contributing
 
@@ -219,8 +227,9 @@ trainer.train(
 
 ## 🙏 Acknowledgments
 
-- **Kaggle**: For providing the email and invoice datasets
+- **Kaggle**: For providing the document datasets for email detection
 - **Tesseract OCR**: For optical character recognition
 - **spaCy**: For natural language processing
 - **PyTorch**: For deep learning framework
-AI information extractor and document classifier
+
+**DocEx - AI-powered email detection and document classification system**

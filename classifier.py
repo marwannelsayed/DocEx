@@ -31,7 +31,8 @@ class DocumentDataset(Dataset):
             self.features = self.vectorizer.transform(texts).toarray()
             
         self.features = torch.FloatTensor(self.features)
-        self.labels = torch.LongTensor([1 if label == 'invoice' else 0 for label in labels])
+        # Map 'email' to 1, everything else to 0
+        self.labels = torch.LongTensor([1 if label == 'email' else 0 for label in labels])
     
     def __len__(self):
         return len(self.texts)
@@ -52,7 +53,7 @@ class DocumentClassifier(nn.Module):
             nn.Linear(hidden_size // 2, 64),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(64, 2)  # 2 classes: email (0), invoice (1)
+            nn.Linear(64, 1)  # 1 output: email probability
         )
     
     def forward(self, x):
@@ -105,7 +106,7 @@ class DocumentClassifierTrainer:
         model = DocumentClassifier(input_size).to(self.device)
         
         # Loss and optimizer
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.BCEWithLogitsLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.7)
         
@@ -122,8 +123,8 @@ class DocumentClassifierTrainer:
                 batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
                 
                 optimizer.zero_grad()
-                outputs = model(batch_features)
-                loss = criterion(outputs, batch_labels)
+                outputs = model(batch_features).squeeze(1)
+                loss = criterion(outputs, batch_labels.float())
                 loss.backward()
                 optimizer.step()
                 
@@ -139,11 +140,10 @@ class DocumentClassifierTrainer:
             with torch.no_grad():
                 for batch_features, batch_labels in test_loader:
                     batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
-                    outputs = model(batch_features)
-                    _, predicted = torch.max(outputs.data, 1)
+                    outputs = model(batch_features).squeeze(1)
+                    predicted = (torch.sigmoid(outputs) > 0.5).long()
                     total += batch_labels.size(0)
                     correct += (predicted == batch_labels).sum().item()
-            
             accuracy = correct / total
             test_accuracies.append(accuracy)
             
@@ -197,10 +197,8 @@ class DocumentClassifierTrainer:
                 all_labels.extend(batch_labels.numpy())
         
         # Convert back to string labels
-        label_map = {0: 'email', 1: 'invoice'}
-        pred_labels = [label_map[p] for p in all_predictions]
-        true_labels = [label_map[l] for l in all_labels]
-        
+        pred_labels = ['email' if p == 1 else 'not email' for p in all_predictions]
+        true_labels = ['email' if l == 1 else 'not email' for l in all_labels]
         # Print results
         accuracy = accuracy_score(true_labels, pred_labels)
         print(f"\nFinal Test Accuracy: {accuracy:.4f}")
@@ -208,7 +206,6 @@ class DocumentClassifierTrainer:
         print(classification_report(true_labels, pred_labels))
         print("\nConfusion Matrix:")
         print(confusion_matrix(true_labels, pred_labels))
-        
         return accuracy, pred_labels, true_labels
     
     def predict(self, text):
@@ -227,20 +224,16 @@ class DocumentClassifierTrainer:
         
         # Predict
         with torch.no_grad():
-            outputs = model(features)
-            probabilities = torch.softmax(outputs, dim=1)
-            _, predicted = torch.max(outputs, 1)
-        
-        label_map = {0: 'email', 1: 'invoice'}
-        predicted_class = label_map[predicted.item()]
-        confidence = probabilities[0][predicted.item()].item()
-        
+            outputs = model(features).squeeze(1)
+            prob = torch.sigmoid(outputs).item()
+            predicted = 1 if prob > 0.7 else 0
+        predicted_class = 'email' if predicted == 1 else 'not email'
         return {
             'predicted_class': predicted_class,
-            'confidence': confidence,
+            'confidence': prob,
             'probabilities': {
-                'email': probabilities[0][0].item(),
-                'invoice': probabilities[0][1].item()
+                'email': prob,
+                'not email': 1 - prob
             }
         }
 

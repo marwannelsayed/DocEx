@@ -15,34 +15,78 @@ nlp = spacy.load("en_core_web_sm")
 
 def extract_text_from_image(image_path):
     try:
+        # Check if file is an image by extension
+        valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif'}
+        file_ext = os.path.splitext(image_path)[1].lower()
+        if file_ext not in valid_extensions:
+            return ""
+        
+        # Open and preprocess image for better OCR
         image = Image.open(image_path)
-        text = pytesseract.image_to_string(image)
+        
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Resize image if too small (helps with OCR accuracy)
+        width, height = image.size
+        if width < 1000 or height < 1000:
+            scale_factor = max(1000/width, 1000/height)
+            new_width = int(width * scale_factor)
+            new_height = int(height * scale_factor)
+            image = image.resize((new_width, new_height), Image.LANCZOS)
+        
+        # Configure Tesseract for better text extraction
+        custom_config = '--oem 3 --psm 6'
+        
+        # Extract text with improved configuration
+        text = pytesseract.image_to_string(image, config=custom_config)
+        
+        # Post-process text to fix common OCR errors
+        text = re.sub(r'[^\x00-\x7F]+', ' ', text)  # Remove non-ASCII characters
+        text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+        text = text.strip()
+        
         return text
     except Exception as e:
         print(f"Error processing image {image_path}: {e}")
         return ""
 
 def clean_text(text, remove_stopwords=False):
-
+    """Clean and normalize text for better processing."""
+    
+    # Remove extra whitespace and normalize
     text = re.sub(r'\s+', ' ', text) 
     text = text.strip()
-
+    
+    # Convert to lowercase for consistency
     text = text.lower()
-
-    text = re.sub(r'\b[o]\b', '0', text)
-    text = re.sub(r'\b[l]\b', '1', text)
-
-    # Replace 'i' with '1' if between digits or adjacent to a digit, remove spaces
+    
+    # Fix common OCR character errors
+    text = re.sub(r'\b[o]\b', '0', text)  # isolated 'o' to '0'
+    text = re.sub(r'\b[l]\b', '1', text)  # isolated 'l' to '1'
+    
+    # Replace 'i' with '1' if between digits or adjacent to a digit
     text = re.sub(r'(?<=\d)\s*i\s*(?=\d)', '1', text)   # between digits
     text = re.sub(r'(?<=\d)\s*i\b', '1', text)          # after a digit
     text = re.sub(r'\bi\s*(?=\d)', '1', text)           # before a digit
-
-
-    text = re.sub(r'(.)\1{2,}', r'\1', text)
-
+    
+    # Remove excessive repeated characters (OCR artifacts)
+    text = re.sub(r'(.)\1{3,}', r'\1', text)  # Allow up to 2 repeats, remove more
+    
+    # Fix common email/document OCR issues
+    text = re.sub(r'\b(frorn|frem)\b', 'from', text)    # Fix "from"
+    text = re.sub(r'\b(subjecf|subjeci)\b', 'subject', text)  # Fix "subject"
+    text = re.sub(r'\b(ernail|emaii)\b', 'email', text)  # Fix "email"
+    text = re.sub(r'\b(dafe|dale)\b', 'date', text)     # Fix "date"
+    
+    # Preserve important punctuation for email detection
+    text = re.sub(r'([a-zA-Z0-9])@([a-zA-Z0-9])', r'\1@\2', text)  # Ensure @ is preserved
+    text = re.sub(r'([a-zA-Z0-9])\.([a-zA-Z]{2,})', r'\1.\2', text)  # Preserve domain extensions
+    
     if remove_stopwords:
         doc = nlp(text)
-        tokens = [token.text for token in doc if not token.is_stop]
+        tokens = [token.text for token in doc if not token.is_stop and len(token.text) > 1]
         text = ' '.join(tokens)
 
     return text
@@ -121,13 +165,6 @@ def extract_classification_features(raw_text, cleaned_text):
     features["word_count"] = len(cleaned_text.split())
     features["char_count"] = len(cleaned_text)
     features["line_count"] = len(raw_text.split('\n'))
-    
-    # Invoice-specific features
-    features["has_invoice_number"] = bool(re.search(r'invoice\s*#?\s*\d+', cleaned_text, re.IGNORECASE))
-    features["has_amount"] = bool(re.search(r'\$\d+\.?\d*', cleaned_text))
-    features["has_total"] = bool(re.search(r'total.*\$\d+', cleaned_text, re.IGNORECASE))
-    features["has_due_date"] = bool(re.search(r'due.*date', cleaned_text, re.IGNORECASE))
-    features["has_billing"] = bool(re.search(r'billing|payment|remittance', cleaned_text, re.IGNORECASE))
     
     # Email-specific features
     features["has_email_address"] = bool(re.search(r'\w+@\w+\.\w+', cleaned_text))

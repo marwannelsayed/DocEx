@@ -4,18 +4,15 @@ import pandas as pd
 from extract import extract_text_for_classification
 
 # Download datasets
-path1 = kagglehub.dataset_download("suvroo/scanned-images-dataset-for-ocr-and-vlm-finetuning")
-print("Path to dataset files (emails):", path1)
-
-path2 = kagglehub.dataset_download("osamahosamabdellatif/high-quality-invoice-images-for-ocr")
-print("Path to dataset files (invoices):", path2)
+path = kagglehub.dataset_download("suvroo/scanned-images-dataset-for-ocr-and-vlm-finetuning")
+print("Path to dataset files", path)
 
 data = []
 
 # Process emails
 print("Processing emails...")
 email_count = 0
-for root, dirs, files in os.walk(path1):
+for root, dirs, files in os.walk(path):
     if os.path.basename(root) == "Email":  
         print(f"Found Email folder: {root}")
         print(f"Files in folder: {len(files)}")
@@ -43,24 +40,26 @@ for root, dirs, files in os.walk(path1):
 
 print(f"Total emails processed: {email_count}")
 
-# Process invoices
-print("Processing invoices...")
-invoice_count = 0
-folder_path2 = os.path.join(path2, "batch_1", "batch_1", "batch1_1")
-print(f"Looking for invoices in: {folder_path2}")
+# Process non-email documents (label as "not email")
+print("Processing non-email documents...")
+total_non_email_count = 0
+MAX_FILES_PER_FOLDER = 100
 
-if not os.path.exists(folder_path2):
-    print(f"Invoice folder not found: {folder_path2}")
-    print("Available paths:")
-    for root, dirs, files in os.walk(path2):
-        print(f"  {root}")
-else:
-    files_list = os.listdir(folder_path2)
-    print(f"Files in invoice folder: {len(files_list)}")
-    
-    for file in files_list:
-        file_path = os.path.join(folder_path2, file)
-        if os.path.isfile(file_path):
+for root, dirs, files in os.walk(path):
+    folder_name = os.path.basename(root)
+    # Process any folder that's not Email and not the root dataset folder
+    if folder_name != "Email" and folder_name != "dataset" and folder_name != os.path.basename(path) and files:
+        print(f"Found non-email folder: {folder_name} ({root})")
+        print(f"Files in folder: {len(files)}")
+        
+        folder_file_count = 0
+        for file in files:
+            # Stop processing this folder if we've reached the limit for this folder
+            if folder_file_count >= MAX_FILES_PER_FOLDER:
+                print(f"Reached limit of {MAX_FILES_PER_FOLDER} files for folder {folder_name}. Moving to next folder.")
+                break
+                
+            file_path = os.path.join(root, file)
             try:
                 # Extract structured data for classification
                 result = extract_text_for_classification(file_path)
@@ -68,20 +67,23 @@ else:
                     data.append({
                         "file": file,
                         "text": result["cleaned_text"],
-                        "label": "invoice",
+                        "label": "not email",
                         **result["classification_features"]  # Add all features as columns
                     })
-                    invoice_count += 1
-                    if invoice_count % 10 == 0:
-                        print(f"Processed {invoice_count} invoices...")
+                    folder_file_count += 1
+                    total_non_email_count += 1
+                    if total_non_email_count % 10 == 0:
+                        print(f"Processed {total_non_email_count} total non-email documents...")
                 else:
                     print(f"Failed to extract text from {file}: {result.get('error', 'Unknown error')}")
             except Exception as e:
                 print(f"Error processing {file_path}: {e}")
                 import traceback
                 traceback.print_exc()
+        
+        print(f"Processed {folder_file_count} files from folder {folder_name}")
 
-print(f"Total invoices processed: {invoice_count}")
+print(f"Total non-email documents processed: {total_non_email_count}")
 
 # Save training dataset with features
 df = pd.DataFrame(data)
@@ -100,7 +102,7 @@ df.to_csv("training_dataset.csv", index=False)
 
 print(f"\nDataset created with {len(df)} samples:")
 print(f"- Emails: {len(df[df['label'] == 'email'])}")
-print(f"- Invoices: {len(df[df['label'] == 'invoice'])}")
+print(f"- Not emails: {len(df[df['label'] == 'not email'])}")
 print("Saved as training_dataset.csv")
 
 # Show feature statistics
@@ -110,7 +112,7 @@ print("Features:", feature_cols)
 
 # Show feature distributions by class
 print("\nFeature distributions:")
-for feature in ['has_invoice_number', 'has_amount', 'has_email_address', 'has_subject']:
+for feature in ['has_email_address', 'has_subject']:
     if feature in df.columns:
         print(f"{feature}:")
         print(df.groupby('label')[feature].mean())
@@ -121,8 +123,9 @@ if len(df[df['label'] == 'email']) > 0:
     print("Sample email text:")
     email_sample = df[df['label'] == 'email'].iloc[0]['text']
     print(email_sample[:200] + "..." if len(email_sample) > 200 else email_sample)
+    print()
 
-if len(df[df['label'] == 'invoice']) > 0:
-    print("\nSample invoice text:")
-    invoice_sample = df[df['label'] == 'invoice'].iloc[0]['text']
-    print(invoice_sample[:200] + "..." if len(invoice_sample) > 200 else invoice_sample)
+if len(df[df['label'] == 'not email']) > 0:
+    print("Sample non-email text:")
+    non_email_sample = df[df['label'] == 'not email'].iloc[0]['text']
+    print(non_email_sample[:200] + "..." if len(non_email_sample) > 200 else non_email_sample)
