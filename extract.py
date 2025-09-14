@@ -13,17 +13,42 @@ if os.name == 'nt':  # Windows
 
 nlp = spacy.load("en_core_web_sm")
 
-def extract_text_from_image(image_path):
+def extract_text_from_pdf(pdf_path):
+    """Extract text from PDF using both text extraction and OCR"""
     try:
-        # Check if file is an image by extension
-        valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif'}
-        file_ext = os.path.splitext(image_path)[1].lower()
-        if file_ext not in valid_extensions:
-            return ""
+        text = ""
         
-        # Open and preprocess image for better OCR
-        image = Image.open(image_path)
+        # First, try to extract text directly from PDF (for searchable PDFs)
+        try:
+            direct_text = extract_text(pdf_path)
+            if direct_text.strip():
+                text = direct_text
+            else:
+                # If no direct text, use OCR on PDF pages
+                pages = convert_from_path(pdf_path, dpi=300)
+                ocr_text = ""
+                for page in pages:
+                    # Convert PIL image to text using OCR
+                    page_text = extract_text_from_pil_image(page)
+                    ocr_text += page_text + "\n"
+                text = ocr_text
+        except Exception as e:
+            # Fallback to OCR if direct extraction fails
+            pages = convert_from_path(pdf_path, dpi=300)
+            ocr_text = ""
+            for page in pages:
+                page_text = extract_text_from_pil_image(page)
+                ocr_text += page_text + "\n"
+            text = ocr_text
         
+        return text.strip()
+    except Exception as e:
+        print(f"Error processing PDF {pdf_path}: {e}")
+        return ""
+
+def extract_text_from_pil_image(image):
+    """Extract text from a PIL Image object using OCR"""
+    try:
         # Convert to RGB if needed
         if image.mode != 'RGB':
             image = image.convert('RGB')
@@ -49,7 +74,72 @@ def extract_text_from_image(image_path):
         
         return text
     except Exception as e:
+        print(f"Error processing PIL image: {e}")
+        return ""
+
+def extract_text_from_image(image_path):
+    try:
+        # Check if file is an image by extension
+        valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif'}
+        file_ext = os.path.splitext(image_path)[1].lower()
+        if file_ext not in valid_extensions:
+            return ""
+        
+        # Open and preprocess image for better OCR
+        image = Image.open(image_path)
+        
+        # Use the common PIL image processing function
+        return extract_text_from_pil_image(image)
+    except Exception as e:
         print(f"Error processing image {image_path}: {e}")
+        return ""
+
+def extract_text_from_document(file_path):
+    """
+    Universal text extraction function that handles multiple file formats:
+    - Images: JPG, PNG, BMP, TIFF, GIF
+    - PDFs: Both searchable and scanned PDFs
+    - Unknown: Try both PDF and image extraction
+    """
+    try:
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # Handle PDF files
+        if file_ext == '.pdf':
+            return extract_text_from_pdf(file_path)
+        
+        # Handle image files
+        elif file_ext in {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif'}:
+            return extract_text_from_image(file_path)
+        
+        # Handle unknown or .tmp files - try both approaches
+        elif file_ext in {'.tmp', ''}:
+            # First try as PDF
+            try:
+                pdf_text = extract_text_from_pdf(file_path)
+                if pdf_text.strip():
+                    return pdf_text
+            except:
+                pass
+            
+            # If PDF fails, try as image
+            try:
+                # Override the extension check for unknown files
+                image = Image.open(file_path)
+                return extract_text_from_pil_image(image)
+            except:
+                pass
+            
+            print(f"Could not process file as PDF or image: {file_path}")
+            return ""
+        
+        # Unsupported format
+        else:
+            print(f"Unsupported file format: {file_ext}")
+            return ""
+            
+    except Exception as e:
+        print(f"Error processing document {file_path}: {e}")
         return ""
 
 def clean_text(text, remove_stopwords=False):
@@ -128,9 +218,13 @@ def extract_structured_data(text):
     }
     return structured_data
 
-def extract_text_for_classification(image_path):
-    # Extract raw text from image
-    raw_text = extract_text_from_image(image_path)
+def extract_text_for_classification(file_path):
+    """
+    Extract and prepare text from any supported document format for classification.
+    Supports: PDF, JPG, PNG, BMP, TIFF, GIF
+    """
+    # Extract raw text from document (image or PDF)
+    raw_text = extract_text_from_document(file_path)
     
     if not raw_text.strip():
         return {
@@ -138,7 +232,7 @@ def extract_text_for_classification(image_path):
             "cleaned_text": "",
             "classification_features": {},
             "success": False,
-            "error": "No text extracted from image"
+            "error": "No text extracted from document"
         }
     
     # Clean text for classification (remove stopwords to focus on distinguishing features)
@@ -152,7 +246,7 @@ def extract_text_for_classification(image_path):
         "cleaned_text": cleaned_text,
         "classification_features": classification_features,
         "success": True,
-        "file_path": image_path
+        "file_path": file_path
     }
 
 def extract_classification_features(raw_text, cleaned_text):

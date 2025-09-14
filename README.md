@@ -4,11 +4,14 @@ A PyTorch-based machine learning system for classifying scanned documents as eit
 
 ## 🚀 Features
 
-- **OCR Text Extraction**: Extracts text from images using Tesseract OCR with advanced preprocessing
+- **Multi-Format Support**: Processes PDFs, images (PNG, JPG, TIFF, BMP, GIF) and scanned documents
+- **OCR Text Extraction**: Advanced text extraction using Tesseract OCR with preprocessing
+- **PDF Processing**: Handles both searchable PDFs (direct text) and scanned PDFs (OCR)
 - **Binary Classification**: PyTorch-based deep learning model for email detection
 - **Feature Engineering**: 20+ engineered features optimized for email detection
 - **Data Processing**: Automated dataset creation from Kaggle datasets with balanced sampling
 - **Interactive Testing**: Command-line interface for testing classifications
+- **REST API**: FastAPI service for easy integration with document management systems
 
 ## 📋 Requirements
 
@@ -29,6 +32,10 @@ spacy
 kagglehub
 pdfminer.six
 pdf2image
+reportlab  # For testing PDF creation
+fastapi    # For API service
+uvicorn    # For API server
+python-multipart  # For file uploads
 ```
 
 ## 🛠️ Installation
@@ -49,7 +56,7 @@ Or download from: https://github.com/UB-Mannheim/tesseract/wiki
 
 ### 2. Install Python Dependencies
 ```bash
-pip install torch scikit-learn pandas numpy pytesseract Pillow spacy kagglehub pdfminer.six pdf2image
+pip install torch scikit-learn pandas numpy pytesseract Pillow spacy kagglehub pdfminer.six pdf2image fastapi uvicorn python-multipart reportlab
 ```
 
 ### 3. Install spaCy English Model
@@ -118,7 +125,22 @@ print(f"Class: {result['predicted_class']}")  # "email" or "not email"
 print(f"Confidence: {result['confidence']:.3f}")
 ```
 
-### Classify Image
+### Classify PDF Document
+```python
+from extract import extract_text_for_classification
+from classifier import DocumentClassifierTrainer
+
+# Extract text from PDF
+result = extract_text_for_classification("document.pdf")
+text = result["cleaned_text"]
+
+# Classify
+trainer = DocumentClassifierTrainer()
+prediction = trainer.predict(text)
+print(f"Document type: {prediction['predicted_class']}")
+```
+
+### Classify Image Document
 ```python
 from extract import extract_text_for_classification
 from classifier import DocumentClassifierTrainer
@@ -165,8 +187,10 @@ Linear(64 → 1) → Sigmoid [Email=1, Not Email=0]
 - **Document formatting**: Tables, addresses, phone numbers
 - **Non-email indicators**: Invoice numbers, billing terms, amounts
 
-### Advanced OCR Features
-- **Image preprocessing**: Auto-resize, RGB conversion
+### Advanced Text Processing
+- **PDF text extraction**: Direct text extraction for searchable PDFs
+- **PDF OCR processing**: OCR for scanned PDF pages using pdf2image
+- **Image preprocessing**: Auto-resize, RGB conversion for better OCR
 - **Error correction**: Fixes common OCR mistakes
 - **Text cleaning**: Removes artifacts, normalizes whitespace
 
@@ -193,9 +217,10 @@ python -m spacy download en_core_web_sm
 
 ### Improving Email Detection Accuracy
 1. **Balanced Dataset**: The app automatically processes all emails + 100 files per non-email folder
-2. **Better OCR**: Use high-quality, clear images with proper preprocessing
-3. **Feature Engineering**: Focus on email-specific patterns in `extract_classification_features()`
-4. **Hyperparameter Tuning**: Adjust learning rate, epochs, batch size for binary classification
+2. **Multi-format Support**: Use high-quality PDFs, clear images with proper preprocessing
+3. **Better OCR**: For scanned documents, use high-resolution images or PDFs
+4. **Feature Engineering**: Focus on email-specific patterns in `extract_classification_features()`
+5. **Hyperparameter Tuning**: Adjust learning rate, epochs, batch size for binary classification
 
 ### Training Parameters
 ```python
@@ -212,10 +237,157 @@ trainer.train(
 | File | Purpose |
 |------|---------|
 | `app.py` | Downloads Kaggle datasets and creates balanced training CSV |
-| `extract.py` | Advanced OCR text extraction and email-focused feature engineering |
+| `extract.py` | Advanced text extraction from PDFs and images with email-focused feature engineering |
 | `classifier.py` | PyTorch binary classification neural network |
 | `train_classifier.py` | Complete training pipeline for email detection |
 | `test_classifier.py` | Interactive testing interface for email classification |
+| `api.py` | FastAPI service for document classification with multi-format support |
+| `test_pdf_support.py` | Test script for PDF processing functionality |
+
+## 🌐 API Integration with DocRepo
+
+DocEx provides a FastAPI service that can be integrated with document management systems like [DocRepo](https://github.com/marwannelsayed/DocRepo.git).
+
+### 🚀 Quick API Setup
+
+1. **Install API dependencies:**
+```bash
+pip install fastapi uvicorn python-multipart pdfminer.six pdf2image
+```
+
+2. **Start the API server:**
+```bash
+python api.py
+```
+
+3. **Test the API with multiple formats:**
+```bash
+python test_pdf_support.py
+```
+
+### 📡 API Endpoints
+
+- **`GET /`** - Health check and API status
+- **`POST /classify/text`** - Classify text as email or not email
+- **`POST /classify/document`** - Classify uploaded documents (PDF, JPG, PNG, BMP, TIFF, GIF)
+- **`GET /model/info`** - Get model information and status
+
+### 🔗 Integration with DocRepo
+
+#### Frontend Integration (JavaScript)
+```javascript
+// Classify uploaded document in DocRepo (supports PDF and images)
+async function classifyDocument(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('http://localhost:8000/classify/document', {
+        method: 'POST',
+        body: formData
+    });
+    
+    const result = await response.json();
+    
+    // Use classification result in DocRepo
+    if (result.success) {
+        console.log(`Document classified as: ${result.predicted_class}`);
+        console.log(`Confidence: ${result.confidence}`);
+        console.log(`Message: ${result.message}`); // Shows if PDF or image was processed
+        
+        // Add email tag to document metadata
+        if (result.predicted_class === 'email') {
+            addDocumentTag(documentId, 'email');
+        }
+    }
+    
+    return result;
+}
+```
+
+#### Backend Integration (Python/FastAPI)
+```python
+import requests
+
+def integrate_classification_with_docrepo(document_path, document_id):
+    """
+    Integrate email classification with DocRepo document processing
+    Supports PDF, JPG, PNG, BMP, TIFF, GIF formats
+    """
+    
+    # Classify the document using DocEx API
+    with open(document_path, 'rb') as f:
+        files = {'file': f}
+        response = requests.post(
+            'http://localhost:8000/classify/document',
+            files=files
+        )
+    
+    if response.status_code == 200:
+        result = response.json()
+        
+        # Auto-tag documents in DocRepo based on classification
+        if result['predicted_class'] == 'email' and result['confidence'] > 0.8:
+            # Add email tag with high confidence
+            add_document_tag(document_id, 'email', confidence=result['confidence'])
+            
+        # Log processing details
+        print(f"Processed: {result['message']}")
+        return result
+    
+    return None
+```
+
+### 🏗️ Integration Architecture
+
+```
+DocRepo Frontend
+       ↓ (Upload PDF/Image Document)
+DocRepo Backend 
+       ↓ (API Call)
+DocEx Classification API (localhost:8000)
+       ↓ (PDF Text Extraction OR OCR + ML Classification)
+Email/Not Email Result
+       ↓ (Return Classification + Processing Info)
+DocRepo Backend
+       ↓ (Auto-tag Document)
+DocRepo Database
+```
+
+### 📊 Classification Response Format
+
+```json
+{
+    "success": true,
+    "predicted_class": "email",
+    "confidence": 0.95,
+    "probabilities": {
+        "email": 0.95,
+        "not email": 0.05
+    },
+    "message": "Classification successful"
+}
+```
+
+### 🔧 DocRepo Integration Benefits
+
+1. **Multi-Format Support** - Automatically processes PDFs and images upon upload
+2. **Automatic Email Detection** - Documents are classified regardless of format
+3. **Smart Tagging** - Auto-tag emails for better organization
+4. **Enhanced Search** - Filter documents by type (email/not email)
+5. **Metadata Enrichment** - Add classification confidence scores and processing info
+6. **Workflow Automation** - Route emails to specific folders or users
+7. **PDF Intelligence** - Handle both searchable and scanned PDF documents
+
+### 📝 Complete Integration Steps
+
+1. **Set up DocEx API** (this repository)
+2. **Clone DocRepo** from https://github.com/marwannelsayed/DocRepo.git
+3. **Modify DocRepo upload handler** to call DocEx classification API
+4. **Update DocRepo database schema** to include classification tags
+5. **Add frontend UI** to display classification results
+6. **Implement filtering/search** by document classification
+
+For detailed integration instructions, see `API_INTEGRATION.md`.
 
 ## 🤝 Contributing
 
