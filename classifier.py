@@ -16,13 +16,15 @@ class DocumentDataset(Dataset):
         self.labels = labels
         
         if is_training:
-            # Fit vectorizer on training data
+            # Fit vectorizer on training data with improved parameters
             self.vectorizer = TfidfVectorizer(
-                max_features=5000,
+                max_features=8000,  # Increased features
                 stop_words='english',
-                ngram_range=(1, 2),  # Include bigrams
-                min_df=2,
-                max_df=0.8
+                ngram_range=(1, 3),  # Include trigrams for better context
+                min_df=1,  # Allow rare terms that might be document-specific
+                max_df=0.9,  # Allow slightly more common terms
+                sublinear_tf=True,  # Use log-scale TF
+                norm='l2'  # L2 normalization
             )
             self.features = self.vectorizer.fit_transform(texts).toarray()
         else:
@@ -31,8 +33,15 @@ class DocumentDataset(Dataset):
             self.features = self.vectorizer.transform(texts).toarray()
             
         self.features = torch.FloatTensor(self.features)
-        # Map 'email' to 1, everything else to 0
-        self.labels = torch.LongTensor([1 if label == 'email' else 0 for label in labels])
+        # Map labels to indices: email=0, invoice=1, financial=2, resume=3
+        label_to_idx = {
+            'email': 0, 
+            'invoice': 1, 
+            'financial_statement': 2, 
+            'financial': 2,  # Allow both forms
+            'resume': 3
+        }
+        self.labels = torch.LongTensor([label_to_idx.get(label, 0) for label in labels])
     
     def __len__(self):
         return len(self.texts)
@@ -53,7 +62,7 @@ class DocumentClassifier(nn.Module):
             nn.Linear(hidden_size // 2, 64),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(64, 1)  # 1 output: email probability
+            nn.Linear(64, 4)  # 4 outputs: email, invoice, financial_statement, resume
         )
     
     def forward(self, x):
@@ -106,7 +115,7 @@ class DocumentClassifierTrainer:
         model = DocumentClassifier(input_size).to(self.device)
         
         # Loss and optimizer
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.CrossEntropyLoss()  # Multi-class classification
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.7)
         
@@ -123,8 +132,8 @@ class DocumentClassifierTrainer:
                 batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
                 
                 optimizer.zero_grad()
-                outputs = model(batch_features).squeeze(1)
-                loss = criterion(outputs, batch_labels.float())
+                outputs = model(batch_features)
+                loss = criterion(outputs, batch_labels)
                 loss.backward()
                 optimizer.step()
                 
@@ -140,8 +149,8 @@ class DocumentClassifierTrainer:
             with torch.no_grad():
                 for batch_features, batch_labels in test_loader:
                     batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
-                    outputs = model(batch_features).squeeze(1)
-                    predicted = (torch.sigmoid(outputs) > 0.5).long()
+                    outputs = model(batch_features)
+                    _, predicted = torch.max(outputs, 1)
                     total += batch_labels.size(0)
                     correct += (predicted == batch_labels).sum().item()
             accuracy = correct / total
@@ -168,6 +177,129 @@ class DocumentClassifierTrainer:
         self.evaluate(X_test, y_test)
         
         return model, train_losses, test_accuracies
+    
+    def train_from_data(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32, learning_rate=0.001):
+        """Train the classifier with pre-split data (for Kaggle dataset)"""
+        
+        # Create datasets
+        train_dataset = DocumentDataset(X_train, y_train, is_training=True)
+        val_dataset = DocumentDataset(X_val, y_val, train_dataset.vectorizer, is_training=False)
+        
+        # Save vectorizer
+        with open(self.vectorizer_save_path, 'wb') as f:
+            pickle.dump(train_dataset.vectorizer, f)
+        
+        # Create data loaders
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        
+        # Initialize model
+        input_size = train_dataset.features.shape[1]
+        model = DocumentClassifier(input_size).to(self.device)
+        
+        # Calculate class weights for imbalanced dataset
+        from sklearn.utils.class_weight import compute_class_weight
+        import torch
+        
+        class_weights = compute_class_weight(
+            'balanced',
+            classes=np.unique(y_train),
+            y=y_train
+        )
+        class_weights = torch.FloatTensor(class_weights).to(self.device)
+        print(f"Class weights: {class_weights}")
+        
+        # Loss and optimizer with class weights
+        criterion = nn.CrossEntropyLoss(weight=class_weights)  # Weighted loss for imbalanced data
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=5, factor=0.5)
+        
+        # Training loop
+        best_accuracy = 0
+        train_losses = []
+        val_accuracies = []
+        patience_counter = 0
+        max_patience = 10
+        
+        print(f"Starting training with {len(X_train)} train samples, {len(X_val)} validation samples")
+        
+        for epoch in range(epochs):
+            # Training
+            model.train()
+            total_loss = 0
+            for batch_features, batch_labels in train_loader:
+                batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
+                
+                optimizer.zero_grad()
+                outputs = model(batch_features)
+                loss = criterion(outputs, batch_labels)
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+            
+            avg_loss = total_loss / len(train_loader)
+            train_losses.append(avg_loss)
+            
+            # Validation
+            model.eval()
+            correct = 0
+            total = 0
+            class_correct = {0: 0, 1: 0, 2: 0, 3: 0}
+            class_total = {0: 0, 1: 0, 2: 0, 3: 0}
+            
+            with torch.no_grad():
+                for batch_features, batch_labels in val_loader:
+                    batch_features, batch_labels = batch_features.to(self.device), batch_labels.to(self.device)
+                    outputs = model(batch_features)
+                    _, predicted = torch.max(outputs, 1)
+                    
+                    total += batch_labels.size(0)
+                    correct += (predicted == batch_labels).sum().item()
+                    
+                    # Per-class accuracy
+                    for i in range(len(batch_labels)):
+                        label = batch_labels[i].item()
+                        class_total[label] += 1
+                        if predicted[i] == batch_labels[i]:
+                            class_correct[label] += 1
+            
+            accuracy = correct / total * 100  # Convert to percentage
+            val_accuracies.append(accuracy)
+            
+            # Save best model
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                patience_counter = 0
+                torch.save({
+                    'model_state_dict': model.state_dict(),
+                    'input_size': input_size,
+                    'accuracy': accuracy,
+                    'epoch': epoch
+                }, self.model_save_path)
+            else:
+                patience_counter += 1
+            
+            scheduler.step(accuracy)
+            
+            if (epoch + 1) % 10 == 0:
+                print(f'Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}, Val Accuracy: {accuracy:.2f}%')
+                
+                # Show per-class accuracy
+                class_names = {0: 'Email', 1: 'Invoice', 2: 'Financial', 3: 'Resume'}
+                for class_id in range(4):
+                    if class_total[class_id] > 0:
+                        class_acc = class_correct[class_id] / class_total[class_id] * 100
+                        print(f'   {class_names[class_id]}: {class_acc:.1f}% ({class_correct[class_id]}/{class_total[class_id]})')
+            
+            # Early stopping
+            if patience_counter >= max_patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+        
+        print(f"Training completed! Best validation accuracy: {best_accuracy:.2f}%")
+        
+        return model, train_losses, val_accuracies
     
     def evaluate(self, X_test, y_test):
         # Load best model
@@ -197,8 +329,10 @@ class DocumentClassifierTrainer:
                 all_labels.extend(batch_labels.numpy())
         
         # Convert back to string labels
-        pred_labels = ['email' if p == 1 else 'not email' for p in all_predictions]
-        true_labels = ['email' if l == 1 else 'not email' for l in all_labels]
+        label_map = {0: 'email', 1: 'invoice', 2: 'financial_statement', 3: 'resume'}
+        pred_labels = [label_map[p] for p in all_predictions]
+        true_labels = [label_map[l] for l in all_labels]
+        
         # Print results
         accuracy = accuracy_score(true_labels, pred_labels)
         print(f"\nFinal Test Accuracy: {accuracy:.4f}")
@@ -224,16 +358,24 @@ class DocumentClassifierTrainer:
         
         # Predict
         with torch.no_grad():
-            outputs = model(features).squeeze(1)
-            prob = torch.sigmoid(outputs).item()
-            predicted = 1 if prob > 0.7 else 0
-        predicted_class = 'email' if predicted == 1 else 'not email'
+            outputs = model(features)
+            probabilities = torch.softmax(outputs, dim=1).squeeze()
+            predicted = torch.argmax(outputs, dim=1).item()
+        
+        # Map predictions to labels
+        label_map = {0: 'email', 1: 'invoice', 2: 'financial_statement', 3: 'resume'}
+        predicted_class = label_map[predicted]
+        confidence = probabilities[predicted].item()
+        
         return {
             'predicted_class': predicted_class,
-            'confidence': prob,
+            'predicted_label': predicted,  # Add numeric label for compatibility
+            'confidence': confidence,
             'probabilities': {
-                'email': prob,
-                'not email': 1 - prob
+                'email': probabilities[0].item(),
+                'invoice': probabilities[1].item(),
+                'financial_statement': probabilities[2].item(),
+                'resume': probabilities[3].item()
             }
         }
 

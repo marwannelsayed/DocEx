@@ -260,24 +260,58 @@ def extract_classification_features(raw_text, cleaned_text):
     features["char_count"] = len(cleaned_text)
     features["line_count"] = len(raw_text.split('\n'))
     
-    # Email-specific features
+    # Invoice-specific features
+    features["has_invoice_number"] = bool(re.search(r'(invoice(?:\s+(?:number|no\.?|#))?[:\s]*)([A-Z0-9\-]+)', cleaned_text, re.IGNORECASE))
+    features["has_seller_info"] = bool(re.search(r'seller|vendor|supplier|company|corporation', cleaned_text, re.IGNORECASE))
+    features["has_items_list"] = bool(re.search(r'items?\s+descriptions?|quantity|prices?|amount|unit cost', cleaned_text, re.IGNORECASE))
+    features["has_total_amount"] = bool(re.search(r'(total(?: due)?:?\s*)(\$?\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', cleaned_text, re.IGNORECASE))
+    features["has_client_info"] = bool(re.search(r'client|customer|bill to|sold to', cleaned_text, re.IGNORECASE))
+    features["has_date_info"] = bool(re.search(r'\b(date|due date|invoice date)[:\s]*\d{1,4}[-/]\d{1,2}[-/]\d{2,4}', cleaned_text, re.IGNORECASE))
+    features["has_payment_terms"] = bool(re.search(r'payment terms|net \d+|due upon receipt', cleaned_text, re.IGNORECASE))
+    features["has_tax_info"] = bool(re.search(r'tax|vat|gst|sales tax', cleaned_text, re.IGNORECASE))
+
+    # Financial statement-specific features
+    features["has_financial_terms"] = bool(re.search(r'balance|income statement|cash flow|equity|liabilities|assets|revenue|expenses', cleaned_text, re.IGNORECASE))
+    features["has_transaction"] = bool(re.search(r'transactions?|debit|credit|account number|balance', cleaned_text, re.IGNORECASE))
+    features["has_statement_period"] = bool(re.search(r'for the (month|quarter|year) ending|period ending|statement period', cleaned_text, re.IGNORECASE))
+    features["has_statement_title"] = bool(re.search(r'financial statement|balance sheet|income statement|profit and loss|p&l|statements?', cleaned_text, re.IGNORECASE))
+    features["has_accounting_terms"] = bool(re.search(r'receivables|payables|depreciation|amortization|goodwill|retained earnings', cleaned_text, re.IGNORECASE))
+    features["has_financial_ratios"] = bool(re.search(r'ratio|percentage|percent|%|margin', cleaned_text, re.IGNORECASE))
+
+    # Resume-specific features
+    features["has_education"] = bool(re.search(r'education|degree|bachelor|master|phd|university|college|school|graduated', cleaned_text, re.IGNORECASE))
+    features["has_experience"] = bool(re.search(r'experience|worked at|responsibilities|projects?|employment|career|position', cleaned_text, re.IGNORECASE))
+    features["has_skills"] = bool(re.search(r'skills?|proficiencies?|technologies?|tools?|programming|languages?', cleaned_text, re.IGNORECASE))
+    features["has_certifications"] = bool(re.search(r'certifications?|licensed|certified|awards?|achievements?', cleaned_text, re.IGNORECASE))
+    features["has_contact_info"] = bool(re.search(r'phone|email|contact|address|linkedin|portfolio', cleaned_text, re.IGNORECASE))
+    features["has_objective"] = bool(re.search(r'objective|summary|profile|about me|career goal', cleaned_text, re.IGNORECASE))
+    features["has_job_titles"] = bool(re.search(r'manager|developer|engineer|analyst|director|specialist|coordinator', cleaned_text, re.IGNORECASE))
+    
+    # Email-specific features (enhanced)
     features["has_email_address"] = bool(re.search(r'\w+@\w+\.\w+', cleaned_text))
     features["has_subject"] = bool(re.search(r'subject:', cleaned_text, re.IGNORECASE))
-    features["has_email_headers"] = bool(re.search(r'from:.*to:', cleaned_text, re.IGNORECASE))
-    features["has_greeting"] = bool(re.search(r'dear \w+|hello|hi', cleaned_text, re.IGNORECASE))
-    features["has_signature"] = bool(re.search(r'sincerely|regards|best wishes', cleaned_text, re.IGNORECASE))
+    features["has_email_headers"] = bool(re.search(r'from:.*to:|sent:|received:', cleaned_text, re.IGNORECASE))
+    features["has_greeting"] = bool(re.search(r'dear \w+|hello|hi|greetings', cleaned_text, re.IGNORECASE))
+    features["has_signature"] = bool(re.search(r'sincerely|regards|best wishes|thank you|thanks', cleaned_text, re.IGNORECASE))
+    features["has_reply_forward"] = bool(re.search(r'reply|forward|fwd|re:|fw:', cleaned_text, re.IGNORECASE))
+    features["has_cc_bcc"] = bool(re.search(r'\b(cc|bcc):', cleaned_text, re.IGNORECASE))
+
     
     # Document structure features
     features["has_tables"] = bool(re.search(r'(\w+\s+){3,}\$?\d+', cleaned_text))  # Likely table structure
     features["has_addresses"] = bool(re.search(r'\d+\s+\w+\s+(street|st|avenue|ave|road|rd)', cleaned_text, re.IGNORECASE))
     features["has_phone"] = bool(re.search(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', cleaned_text))
     
-    # Count specific keywords
-    invoice_keywords = ['invoice', 'bill', 'receipt', 'payment', 'due', 'amount', 'total', 'tax', 'subtotal']
+    # Count specific keywords for each document type
     email_keywords = ['subject', 'from', 'to', 'sent', 'received', 'reply', 'message', 'dear', 'regards']
+    invoice_keywords = ['invoice', 'bill', 'payment', 'total', 'amount', 'due', 'customer', 'vendor']
+    financial_keywords = ['balance', 'assets', 'liabilities', 'equity', 'revenue', 'expenses', 'profit', 'loss']
+    resume_keywords = ['experience', 'education', 'skills', 'university', 'degree', 'worked', 'position', 'responsibilities']
     
-    features["invoice_keyword_count"] = sum(1 for keyword in invoice_keywords if keyword in cleaned_text)
     features["email_keyword_count"] = sum(1 for keyword in email_keywords if keyword in cleaned_text)
+    features["invoice_keyword_count"] = sum(1 for keyword in invoice_keywords if keyword in cleaned_text)
+    features["financial_keyword_count"] = sum(1 for keyword in financial_keywords if keyword in cleaned_text)
+    features["resume_keyword_count"] = sum(1 for keyword in resume_keywords if keyword in cleaned_text)
     
     # Entity-based features
     entities = extract_entities(raw_text)
